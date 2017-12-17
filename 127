@@ -1,0 +1,154 @@
+#!/bin/bash
+echo -e "\nGuten Nachmittag, wilkommen zum praktischen Test vom Modul 127\n"
+read -p "Wie lautet dein Vorname? " NAME
+
+echo -e "\nDu kannst den Test jederzeit mit dem Kommando 'end-test' abschliessen.\n"
+
+#--------------------------------------------------------
+hostnamectl set-hostname "${NAME,,}"
+echo -n .
+
+#--------------------------------------------------------
+for f in /etc/sysconfig/network-scripts/ifcfg-*; do
+  sed -i -e 's/^ONBOOT=no/ONBOOT=yes/' "$f"
+done
+echo -n .
+
+#--------------------------------------------------------
+touch /root/.bash_history
+echo "shopt -s histappend" >> /root/.bashrc
+echo 'PROMPT_COMMAND="history -a;$PROMPT_COMMAND"' >> /root/.bashrc
+echo -n .
+
+#--------------------------------------------------------
+echo "alias end-test='mail-status End && echo "Merci" && sleep 3 && logout'" >> /root/.bashrc
+echo -n .
+
+#--------------------------------------------------------
+cat > /usr/local/bin/mail-status << 'EOF'
+#!/bin/bash
+
+if [ -z "$1" ]; then
+   TITLE=$(date +%F_-_%H:%M)
+else
+   TITLE="$1"
+fi
+
+sendmail marco@smlz.ch <<_EOF_
+Subject: $(hostname): ${TITLE}
+To: marco@smlz.ch
+
+$(hostname): ${TITLE}
+
+Bash History
+------------
+$(cat /root/.bash_history)
+
+Services
+--------
+$(systemctl status)
+
+Firewall
+--------
+$(firewall-cmd --list-all)
+
+/root/anaconda-ks.cfg
+---------------------
+$(cat /root/anaconda-ks.cfg)
+
+/var/www/html
+-------------
+$(test -d /var/www/html && ls -la /var/www/html)
+
+/var/www/html/index.html
+------------------------
+$(test -f /var/www/html/index.html && cat /var/www/html/index.html)
+
+/var/www/html/ks.cfg
+--------------------
+$(test -f /var/www/html/ks.cfg && cat /var/www/html/ks.cfg)
+
+ip addr
+-------
+$(ip addr)
+
+ip link
+-------
+$(ip link)
+
+Good luck!
+_EOF_
+EOF
+
+chmod +x /usr/local/bin/mail-status
+echo -n .
+
+#--------------------------------------------------------
+cat > /etc/systemd/system/test-logger.service << EOF
+[Unit]
+Description=Test Logger
+
+[Service]
+ExecStart=/usr/local/bin/mail-status
+
+EOF
+
+echo -n .
+
+#--------------------------------------------------------
+cat > /etc/systemd/system/test-logger.timer << EOF
+[Unit]
+Description=Runs Test Logger every five minutes
+
+[Timer]
+OnCalendar=*:0/5
+Unit=test-logger.service
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+systemctl enable --quiet test-logger.timer
+
+echo -n .
+
+#--------------------------------------------------------
+cat >> /root/anaconda-ks.cfg << EOF
+%post --log=/root/ks-post-mail.log
+sendmail marco@smlz.ch << _EOF_
+Subject: ${NAME,,}: KS successfull
+To: marco@smlz.ch
+
+${NAME,,}: KS successfull
+
+ip addr
+-------
+\$(ip addr)
+
+ip link
+-------
+\$(ip link)
+
+Congrats
+_EOF_
+%end
+EOF
+
+echo -n .
+
+#--------------------------------------------------------
+cat > /etc/profile.d/motd.sh << EOF
+echo -e "\nHallo $NAME, viel Erfolg!\n"
+echo -e "\nDu kannst den Test jederzeit mit dem Kommando 'end-test' abschliessen.\n"
+EOF
+
+echo -n .
+
+#--------------------------------------------------------
+mail-status Start
+echo -n .
+
+#--------------------------------------------------------
+echo " Press [Enter] to reboot"
+read
+reboot
